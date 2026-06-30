@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>좀비 잡기</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#4e944f">
+
+<!-- iOS 홈 화면 추가 대응 -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="좀비잡기">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0;
+    min-height: 100vh;
+    overscroll-behavior: none;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(#7ec850, #4e944f);
+    font-family: "Malgun Gothic", sans-serif;
+    color: #2b2b2b;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    touch-action: manipulation;
+  }
+  h1 {
+    margin: 10px 0;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+    font-size: clamp(20px, 5vw, 28px);
+    text-align: center;
+  }
+
+  #hud {
+    display: flex;
+    gap: 24px;
+    font-size: 20px;
+    font-weight: bold;
+    background: rgba(255,255,255,0.85);
+    padding: 8px 20px;
+    border-radius: 10px;
+    margin-bottom: 14px;
+  }
+
+  #board {
+    --hole-size: min(28vw, 120px);
+    display: grid;
+    grid-template-columns: repeat(3, var(--hole-size));
+    grid-template-rows: repeat(3, var(--hole-size));
+    gap: clamp(8px, 3vw, 14px);
+    background: #5a3a22;
+    padding: clamp(10px, 3vw, 16px);
+    border-radius: 16px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+  }
+
+  .hole {
+    position: relative;
+    width: var(--hole-size);
+    height: var(--hole-size);
+    background: radial-gradient(circle at 50% 60%, #2e1d10 0%, #4a2f18 60%, #6b4423 100%);
+    border-radius: 50%;
+    overflow: hidden;
+    cursor: pointer;
+    box-shadow: inset 0 6px 10px rgba(0,0,0,0.6);
+  }
+
+  .mole {
+    position: absolute;
+    left: 50%;
+    bottom: -100%;
+    width: 66%;
+    height: 66%;
+    transform: translateX(-50%);
+    transition: bottom 0.12s ease-out;
+    font-size: calc(var(--hole-size) * 0.5);
+    line-height: calc(var(--hole-size) * 0.66);
+    text-align: center;
+    user-select: none;
+  }
+
+  .hole.up .mole {
+    bottom: 10%;
+  }
+
+  .hole.hit .mole {
+    filter: brightness(1.6);
+  }
+
+  #overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #overlay.show { display: flex; }
+
+  #panel {
+    background: #fff;
+    padding: 30px 40px;
+    border-radius: 14px;
+    text-align: center;
+    min-width: 280px;
+  }
+
+  #panel h2 { margin-top: 0; }
+
+  button {
+    font-size: 18px;
+    padding: 10px 24px;
+    margin-top: 12px;
+    border: none;
+    border-radius: 8px;
+    background: #4e944f;
+    color: white;
+    cursor: pointer;
+  }
+  button:hover { background: #3c7a3d; }
+
+  #controls {
+    margin-bottom: 14px;
+    display: flex;
+    gap: 10px;
+  }
+
+  button:disabled {
+    background: #9aa79a;
+    cursor: not-allowed;
+  }
+
+  #board.paused {
+    filter: brightness(0.6) blur(1px);
+  }
+</style>
+</head>
+<body>
+  <h1>🧟 좀비 잡기 - 레벨 10 도전!</h1>
+  <div id="hud">
+    <div>레벨: <span id="level">1</span> / 10</div>
+    <div>점수: <span id="score">0</span></div>
+    <div>시간: <span id="time">10</span>s</div>
+  </div>
+
+  <div id="controls">
+    <button id="startBtn">게임 시작</button>
+    <button id="pauseBtn" disabled>일시정지</button>
+  </div>
+
+  <div id="board"></div>
+
+  <div id="overlay">
+    <div id="panel">
+      <h2 id="resultTitle">결과</h2>
+      <p id="resultDesc"></p>
+      <button id="restartBtn">다시 시작</button>
+    </div>
+  </div>
+
+<script>
+(function () {
+  const HOLE_COUNT = 9;
+  const board = document.getElementById('board');
+  const levelEl = document.getElementById('level');
+  const scoreEl = document.getElementById('score');
+  const timeEl = document.getElementById('time');
+  const startBtn = document.getElementById('startBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const overlay = document.getElementById('overlay');
+  const resultTitle = document.getElementById('resultTitle');
+  const resultDesc = document.getElementById('resultDesc');
+  const restartBtn = document.getElementById('restartBtn');
+
+  let holes = [];
+  let level = 1;
+  let score = 0;
+  let timeLeft = 10;
+  let levelTarget = 5;       // 해당 레벨을 깨기 위해 필요한 점수
+  let activeMole = null;
+  let moleTimer = null;
+  let countdownTimer = null;
+  let running = false;
+  let paused = false;
+
+  // 일시정지 시 재개를 위해 각 타이머의 "남은 시간"을 보관
+  let moleTimerStart = 0;
+  let moleTimerDelay = 0;
+  let hideTimerStart = 0;
+  let hideTimerDelay = 0;
+
+  // 보드 생성
+  for (let i = 0; i < HOLE_COUNT; i++) {
+    const hole = document.createElement('div');
+    hole.className = 'hole';
+    const mole = document.createElement('div');
+    mole.className = 'mole';
+    mole.textContent = '🧟';
+    hole.appendChild(mole);
+    hole.addEventListener('click', () => whack(hole));
+    hole.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      whack(hole);
+    }, { passive: false });
+    board.appendChild(hole);
+    holes.push(hole);
+  }
+
+  function levelTargetFor(lv) {
+    return 5 + (lv - 1) * 3; // 레벨이 오를수록 더 많은 점수 필요
+  }
+
+  function moleUpDuration(lv) {
+    // 레벨이 오를수록 두더지가 빨리 들어감
+    const base = 1100 - (lv - 1) * 80;
+    return Math.max(base, 350);
+  }
+
+  function moleInterval(lv) {
+    const base = 900 - (lv - 1) * 60;
+    return Math.max(base, 300);
+  }
+
+  function randomHole() {
+    const idx = Math.floor(Math.random() * holes.length);
+    return holes[idx];
+  }
+
+  function popMole() {
+    if (!running || paused) return;
+    if (activeMole) {
+      activeMole.classList.remove('up', 'hit');
+    }
+    const hole = randomHole();
+    hole.classList.add('up');
+    activeMole = hole;
+
+    clearTimeout(hole._hideTimer);
+    hideTimerStart = Date.now();
+    hideTimerDelay = moleUpDuration(level);
+    hole._hideTimer = setTimeout(() => {
+      if (hole === activeMole) {
+        hole.classList.remove('up', 'hit');
+        activeMole = null;
+      }
+    }, hideTimerDelay);
+
+    moleTimerStart = Date.now();
+    moleTimerDelay = moleInterval(level);
+    moleTimer = setTimeout(popMole, moleTimerDelay);
+  }
+
+  function whack(hole) {
+    if (!running || paused) return;
+    if (!hole.classList.contains('up') || hole.classList.contains('hit')) return;
+    hole.classList.add('hit');
+    score++;
+    scoreEl.textContent = score;
+
+    setTimeout(() => {
+      hole.classList.remove('up', 'hit');
+    }, 100);
+
+    if (hole === activeMole) {
+      activeMole = null;
+    }
+
+    if (score >= levelTarget) {
+      levelUp();
+    }
+  }
+
+  function levelUp() {
+    if (level >= 10) {
+      endGame(true);
+      return;
+    }
+    level++;
+    levelTarget = levelTargetFor(level);
+    levelEl.textContent = level;
+    timeLeft = 10;
+    timeEl.textContent = timeLeft;
+  }
+
+  function tick() {
+    timeLeft--;
+    timeEl.textContent = timeLeft;
+    if (timeLeft <= 0) {
+      endGame(false);
+    }
+  }
+
+  function startGame() {
+    level = 1;
+    score = 0;
+    timeLeft = 10;
+    levelTarget = levelTargetFor(level);
+    levelEl.textContent = level;
+    scoreEl.textContent = score;
+    timeEl.textContent = timeLeft;
+    overlay.classList.remove('show');
+    running = true;
+    paused = false;
+    startBtn.disabled = true;
+    startBtn.textContent = '진행 중...';
+    pauseBtn.disabled = false;
+    pauseBtn.textContent = '일시정지';
+    board.classList.remove('paused');
+
+    clearTimeout(moleTimer);
+    clearInterval(countdownTimer);
+    popMole();
+    countdownTimer = setInterval(tick, 1000);
+  }
+
+  function pauseGame() {
+    if (!running || paused) return;
+    paused = true;
+    pauseBtn.textContent = '재개';
+    board.classList.add('paused');
+
+    clearTimeout(moleTimer);
+    clearInterval(countdownTimer);
+    if (activeMole) {
+      clearTimeout(activeMole._hideTimer);
+    }
+
+    // 다음 타이머 발동까지 남은 시간만 기억해둔다
+    moleTimerDelay = Math.max(moleTimerDelay - (Date.now() - moleTimerStart), 0);
+    if (activeMole) {
+      hideTimerDelay = Math.max(hideTimerDelay - (Date.now() - hideTimerStart), 0);
+    }
+  }
+
+  function resumeGame() {
+    if (!running || !paused) return;
+    paused = false;
+    pauseBtn.textContent = '일시정지';
+    board.classList.remove('paused');
+
+    moleTimerStart = Date.now();
+    moleTimer = setTimeout(popMole, moleTimerDelay);
+
+    if (activeMole) {
+      const hole = activeMole;
+      hideTimerStart = Date.now();
+      hole._hideTimer = setTimeout(() => {
+        if (hole === activeMole) {
+          hole.classList.remove('up', 'hit');
+          activeMole = null;
+        }
+      }, hideTimerDelay);
+    }
+
+    countdownTimer = setInterval(tick, 1000);
+  }
+
+  function togglePause() {
+    if (paused) {
+      resumeGame();
+    } else {
+      pauseGame();
+    }
+  }
+
+  function endGame(cleared) {
+    running = false;
+    paused = false;
+    clearTimeout(moleTimer);
+    clearInterval(countdownTimer);
+    holes.forEach(h => {
+      h.classList.remove('up', 'hit');
+      clearTimeout(h._hideTimer);
+    });
+    activeMole = null;
+
+    startBtn.disabled = false;
+    startBtn.textContent = '게임 시작';
+    pauseBtn.disabled = true;
+    pauseBtn.textContent = '일시정지';
+    board.classList.remove('paused');
+
+    if (cleared) {
+      resultTitle.textContent = '🎉 레벨 10 클리어!';
+      resultDesc.textContent = `최종 점수: ${score}점. 정말 대단해요!`;
+    } else {
+      resultTitle.textContent = '⏰ 시간 종료';
+      resultDesc.textContent = `레벨 ${level}에서 멈췄어요. 최종 점수: ${score}점`;
+    }
+    overlay.classList.add('show');
+  }
+
+  startBtn.addEventListener('click', startGame);
+  restartBtn.addEventListener('click', startGame);
+  pauseBtn.addEventListener('click', togglePause);
+})();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
