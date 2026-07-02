@@ -117,6 +117,17 @@
 
   #panel h2 { margin-top: 0; }
 
+  #resultButtons {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+  }
+
+  #closeBtn {
+    background: #888;
+  }
+  #closeBtn:hover { background: #6e6e6e; }
+
   button {
     font-size: 18px;
     padding: 10px 24px;
@@ -156,6 +167,7 @@
   <div id="controls">
     <button id="startBtn">게임 시작</button>
     <button id="pauseBtn" disabled>일시정지</button>
+    <button id="quitBtn" disabled>끝내기</button>
   </div>
 
   <div id="board"></div>
@@ -164,7 +176,10 @@
     <div id="panel">
       <h2 id="resultTitle">결과</h2>
       <p id="resultDesc"></p>
-      <button id="restartBtn">다시 시작</button>
+      <div id="resultButtons">
+        <button id="restartBtn">다시 시작</button>
+        <button id="closeBtn">그만두기</button>
+      </div>
     </div>
   </div>
 
@@ -177,10 +192,12 @@
   const timeEl = document.getElementById('time');
   const startBtn = document.getElementById('startBtn');
   const pauseBtn = document.getElementById('pauseBtn');
+  const quitBtn = document.getElementById('quitBtn');
   const overlay = document.getElementById('overlay');
   const resultTitle = document.getElementById('resultTitle');
   const resultDesc = document.getElementById('resultDesc');
   const restartBtn = document.getElementById('restartBtn');
+  const closeBtn = document.getElementById('closeBtn');
 
   let holes = [];
   let level = 1;
@@ -315,6 +332,7 @@
     startBtn.textContent = '진행 중...';
     pauseBtn.disabled = false;
     pauseBtn.textContent = '일시정지';
+    quitBtn.disabled = false;
     board.classList.remove('paused');
 
     clearTimeout(moleTimer);
@@ -373,7 +391,7 @@
     }
   }
 
-  function endGame(cleared) {
+  function endGame(cleared, quit) {
     running = false;
     paused = false;
     clearTimeout(moleTimer);
@@ -388,9 +406,13 @@
     startBtn.textContent = '게임 시작';
     pauseBtn.disabled = true;
     pauseBtn.textContent = '일시정지';
+    quitBtn.disabled = true;
     board.classList.remove('paused');
 
-    if (cleared) {
+    if (quit) {
+      resultTitle.textContent = '🛑 게임 종료';
+      resultDesc.textContent = `레벨 ${level}에서 그만뒀어요. 최종 점수: ${score}점`;
+    } else if (cleared) {
       resultTitle.textContent = '🎉 레벨 10 클리어!';
       resultDesc.textContent = `최종 점수: ${score}점. 정말 대단해요!`;
     } else {
@@ -400,9 +422,18 @@
     overlay.classList.add('show');
   }
 
+  function quitGame() {
+    if (!running) return;
+    endGame(false, true);
+  }
+
   startBtn.addEventListener('click', startGame);
   restartBtn.addEventListener('click', startGame);
   pauseBtn.addEventListener('click', togglePause);
+  quitBtn.addEventListener('click', quitGame);
+  closeBtn.addEventListener('click', () => {
+    overlay.classList.remove('show');
+  });
 })();
 
 if ('serviceWorker' in navigator) {
