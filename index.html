@@ -82,9 +82,6 @@
     height: 66%;
     transform: translateX(-50%);
     transition: bottom 0.12s ease-out;
-    font-size: calc(var(--hole-size) * 0.5);
-    line-height: calc(var(--hole-size) * 0.66);
-    text-align: center;
     user-select: none;
   }
 
@@ -94,6 +91,20 @@
 
   .hole.hit .mole {
     filter: brightness(1.6);
+  }
+
+  /* 엉덩이 닮은 하트 모양: 하나로 이어진 하트 실루엣 + 가운데 골 음영 */
+  .butt-heart {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+
+  .butt-heart svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+    overflow: visible;
   }
 
   #overlay {
@@ -199,6 +210,165 @@
   const restartBtn = document.getElementById('restartBtn');
   const closeBtn = document.getElementById('closeBtn');
 
+  // ---- 효과음 (Web Audio API로 합성) ----
+  let audioCtx = null;
+  function getAudioCtx() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+    return audioCtx;
+  }
+
+  // 철썩/찰싹 - 임팩트 클릭 + 몸통 노이즈 + 저역 바디감을 겹쳐 리얼한 살 부딪힘 질감을 만든다
+  function makeNoiseBuffer(ctx, duration, shapeFn) {
+    const bufferSize = Math.floor(ctx.sampleRate * duration);
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * shapeFn(i / bufferSize);
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    return src;
+  }
+
+  function playSlap() {
+    const ctx = getAudioCtx();
+    const now = ctx.currentTime;
+    const master = ctx.createGain();
+    master.gain.value = 1;
+    master.connect(ctx.destination);
+
+    // "차알~싹" 구조: 앞부분에 'ㄹ' 굴리는 떨림을 길게 깔고, 끝에 강한 임팩트로 마무리한다
+    const rollDur = 0.22 + Math.random() * 0.06;
+    const impactAt = now + rollDur * 0.82; // 떨림이 거의 끝날 무렵 "싹" 임팩트
+
+    // 1) 굴리는 몸통 노이즈("차알~") - 길게 유지되다 서서히 잦아드는 중고역 질감
+    const body = makeNoiseBuffer(ctx, rollDur, (t) => Math.pow(1 - t, 0.8));
+    const bandpass = ctx.createBiquadFilter();
+    bandpass.type = 'bandpass';
+    bandpass.frequency.value = 1400 + Math.random() * 800;
+    bandpass.Q.value = 1.1;
+    const highshelf = ctx.createBiquadFilter();
+    highshelf.type = 'highshelf';
+    highshelf.frequency.value = 3000;
+    highshelf.gain.value = 4;
+    const bodyGain = ctx.createGain();
+    bodyGain.gain.setValueAtTime(0.75, now);
+    bodyGain.gain.linearRampToValueAtTime(0.6, now + rollDur * 0.7);
+    bodyGain.gain.exponentialRampToValueAtTime(0.01, now + rollDur);
+
+    // 'ㄹ' 발음처럼 혀가 떨리듯 빠르게 진폭을 흔드는 트레몰로 (roll 내내 지속)
+    const tremolo = ctx.createOscillator();
+    tremolo.type = 'sine';
+    tremolo.frequency.value = 22 + Math.random() * 5;
+    const tremoloDepth = ctx.createGain();
+    tremoloDepth.gain.value = 0.55;
+    const tremoloGain = ctx.createGain();
+    tremoloGain.gain.value = 0.45;
+    tremolo.connect(tremoloDepth);
+    tremoloDepth.connect(tremoloGain.gain);
+
+    body.connect(bandpass);
+    bandpass.connect(highshelf);
+    highshelf.connect(bodyGain);
+    bodyGain.connect(tremoloGain);
+    tremoloGain.connect(master);
+    body.start(now);
+    body.stop(now + rollDur);
+    tremolo.start(now);
+    tremolo.stop(now + rollDur);
+
+    // 2) 임팩트 클릭("싹") - roll 끝 무렵 터지는 짧고 강한 스파이크
+    const clickDur = 0.01 + Math.random() * 0.004;
+    const click = makeNoiseBuffer(ctx, clickDur, (t) => Math.pow(1 - t, 6));
+    const clickFilter = ctx.createBiquadFilter();
+    clickFilter.type = 'highpass';
+    clickFilter.frequency.value = 2500;
+    const clickGain = ctx.createGain();
+    clickGain.gain.setValueAtTime(1.6, impactAt);
+    clickGain.gain.exponentialRampToValueAtTime(0.01, impactAt + clickDur);
+    click.connect(clickFilter);
+    clickFilter.connect(clickGain);
+    clickGain.connect(master);
+    click.start(impactAt);
+    click.stop(impactAt + clickDur);
+
+    // 3) 임팩트에 맞춘 중고역 노이즈 - "싹" 소리의 몸통
+    const snapDur = 0.06 + Math.random() * 0.02;
+    const snap = makeNoiseBuffer(ctx, snapDur, (t) => Math.pow(1 - t, 2.2));
+    const snapBandpass = ctx.createBiquadFilter();
+    snapBandpass.type = 'bandpass';
+    snapBandpass.frequency.value = 2000 + Math.random() * 900;
+    snapBandpass.Q.value = 1.3;
+    const snapGain = ctx.createGain();
+    snapGain.gain.setValueAtTime(1.1, impactAt);
+    snapGain.gain.exponentialRampToValueAtTime(0.01, impactAt + snapDur);
+    snap.connect(snapBandpass);
+    snapBandpass.connect(snapGain);
+    snapGain.connect(master);
+    snap.start(impactAt);
+    snap.stop(impactAt + snapDur);
+
+    // 4) 저역 바디감 - 임팩트 순간 울리는 "퍽" 하는 낮은 톤
+    const thumpDur = 0.08 + Math.random() * 0.02;
+    const thump = ctx.createOscillator();
+    thump.type = 'sine';
+    thump.frequency.setValueAtTime(180 + Math.random() * 40, impactAt);
+    thump.frequency.exponentialRampToValueAtTime(70, impactAt + thumpDur);
+    const thumpGain = ctx.createGain();
+    thumpGain.gain.setValueAtTime(0.6, impactAt);
+    thumpGain.gain.exponentialRampToValueAtTime(0.01, impactAt + thumpDur);
+    thump.connect(thumpGain);
+    thumpGain.connect(master);
+    thump.start(impactAt);
+    thump.stop(impactAt + thumpDur);
+  }
+
+  // 뿌웅 - 낮은 진동수의 buzzy 방귀음
+  function playFart() {
+    const ctx = getAudioCtx();
+    const now = ctx.currentTime;
+    const duration = 0.35 + Math.random() * 0.2;
+
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    const startFreq = 90 + Math.random() * 30;
+    osc.frequency.setValueAtTime(startFreq, now);
+    osc.frequency.exponentialRampToValueAtTime(startFreq * 0.4, now + duration);
+
+    // 진동감(부르르)을 위한 비브라토
+    const vibrato = ctx.createOscillator();
+    vibrato.frequency.value = 35 + Math.random() * 15;
+    const vibratoGain = ctx.createGain();
+    vibratoGain.gain.value = 18;
+    vibrato.connect(vibratoGain);
+    vibratoGain.connect(osc.frequency);
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.5, now + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + duration);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    vibrato.start(now);
+    osc.stop(now + duration);
+    vibrato.stop(now + duration);
+  }
+
+  function playHitSound() {
+    // 대부분 철썩/찰싹, 가끔 뿌웅이 랜덤으로 섞여서 재생
+    playSlap();
+    if (Math.random() < 0.35) {
+      setTimeout(playFart, 40 + Math.random() * 60);
+    }
+  }
+
   let holes = [];
   let level = 1;
   let score = 0;
@@ -222,7 +392,43 @@
     hole.className = 'hole';
     const mole = document.createElement('div');
     mole.className = 'mole';
-    mole.textContent = '🧟';
+    const buttHeart = document.createElement('div');
+    buttHeart.className = 'butt-heart';
+    buttHeart.innerHTML = `
+      <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <linearGradient id="bh-fill-${i}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#ffd7d7"/>
+            <stop offset="55%" stop-color="#f78fa7"/>
+            <stop offset="100%" stop-color="#c85a7c"/>
+          </linearGradient>
+          <linearGradient id="bh-crack-${i}" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="42%" stop-color="rgba(139,46,79,0)"/>
+            <stop offset="50%" stop-color="rgba(120,36,66,0.55)"/>
+            <stop offset="58%" stop-color="rgba(139,46,79,0)"/>
+          </linearGradient>
+          <radialGradient id="bh-hl-l-${i}" cx="30%" cy="28%" r="30%">
+            <stop offset="0%" stop-color="rgba(255,255,255,0.65)"/>
+            <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+          </radialGradient>
+          <radialGradient id="bh-hl-r-${i}" cx="70%" cy="28%" r="30%">
+            <stop offset="0%" stop-color="rgba(255,255,255,0.5)"/>
+            <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+          </radialGradient>
+          <clipPath id="bh-clip-${i}">
+            <path d="M 50 95 C 30 78, 6 55, 6 30 C 6 13, 19 3, 33 3 C 43 3, 50 10, 50 22 C 50 10, 57 3, 67 3 C 81 3, 94 13, 94 30 C 94 55, 70 78, 50 95 Z"/>
+          </clipPath>
+        </defs>
+        <path d="M 50 95 C 30 78, 6 55, 6 30 C 6 13, 19 3, 33 3 C 43 3, 50 10, 50 22 C 50 10, 57 3, 67 3 C 81 3, 94 13, 94 30 C 94 55, 70 78, 50 95 Z"
+          fill="url(#bh-fill-${i})" stroke="#8b2e4f" stroke-width="1.5" stroke-linejoin="round"/>
+        <g clip-path="url(#bh-clip-${i})">
+          <rect x="0" y="0" width="100" height="100" fill="url(#bh-hl-l-${i})"/>
+          <rect x="0" y="0" width="100" height="100" fill="url(#bh-hl-r-${i})"/>
+          <path d="M 50 20 C 47 40, 47 65, 50 95" fill="none" stroke="url(#bh-crack-${i})" stroke-width="6"/>
+          <ellipse cx="50" cy="88" rx="26" ry="12" fill="rgba(139,46,79,0.28)"/>
+        </g>
+      </svg>`;
+    mole.appendChild(buttHeart);
     hole.appendChild(mole);
     hole.addEventListener('click', () => whack(hole));
     hole.addEventListener('touchstart', (e) => {
@@ -281,6 +487,7 @@
     if (!running || paused) return;
     if (!hole.classList.contains('up') || hole.classList.contains('hit')) return;
     hole.classList.add('hit');
+    playHitSound();
     score++;
     scoreEl.textContent = score;
 
