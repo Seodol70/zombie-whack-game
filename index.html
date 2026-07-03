@@ -242,54 +242,32 @@
     master.gain.value = 1;
     master.connect(ctx.destination);
 
-    // "차알~싹" 구조: 앞부분에 'ㄹ' 굴리는 떨림을 길게 깔고, 끝에 강한 임팩트로 마무리한다
-    const rollDur = 0.22 + Math.random() * 0.06;
-    const impactAt = now + rollDur * 0.82; // 떨림이 거의 끝날 무렵 "싹" 임팩트
+    // 따귀("빰!") 구조: 손이 스치는 아주 짧은 준비음 뒤, 하이피치 크랙 임팩트가 즉각 터진다
+    const swingDur = 0.02 + Math.random() * 0.01;
+    const impactAt = now + swingDur;
 
-    // 1) 굴리는 몸통 노이즈("차알~") - 길게 유지되다 서서히 잦아드는 중고역 질감
-    const body = makeNoiseBuffer(ctx, rollDur, (t) => Math.pow(1 - t, 0.8));
-    const bandpass = ctx.createBiquadFilter();
-    bandpass.type = 'bandpass';
-    bandpass.frequency.value = 1400 + Math.random() * 800;
-    bandpass.Q.value = 1.1;
-    const highshelf = ctx.createBiquadFilter();
-    highshelf.type = 'highshelf';
-    highshelf.frequency.value = 3000;
-    highshelf.gain.value = 4;
-    const bodyGain = ctx.createGain();
-    bodyGain.gain.setValueAtTime(0.75, now);
-    bodyGain.gain.linearRampToValueAtTime(0.6, now + rollDur * 0.7);
-    bodyGain.gain.exponentialRampToValueAtTime(0.01, now + rollDur);
+    // 1) 스침 노이즈 - 손바닥이 공기를 가르는 아주 짧은 "쉭"
+    const swing = makeNoiseBuffer(ctx, swingDur, (t) => Math.pow(t, 0.6) * Math.pow(1 - t, 0.4));
+    const swingFilter = ctx.createBiquadFilter();
+    swingFilter.type = 'highpass';
+    swingFilter.frequency.value = 4000;
+    const swingGain = ctx.createGain();
+    swingGain.gain.setValueAtTime(0.35, now);
+    swingGain.gain.linearRampToValueAtTime(0.5, impactAt);
+    swing.connect(swingFilter);
+    swingFilter.connect(swingGain);
+    swingGain.connect(master);
+    swing.start(now);
+    swing.stop(impactAt);
 
-    // 'ㄹ' 발음처럼 혀가 떨리듯 빠르게 진폭을 흔드는 트레몰로 (roll 내내 지속)
-    const tremolo = ctx.createOscillator();
-    tremolo.type = 'sine';
-    tremolo.frequency.value = 22 + Math.random() * 5;
-    const tremoloDepth = ctx.createGain();
-    tremoloDepth.gain.value = 0.55;
-    const tremoloGain = ctx.createGain();
-    tremoloGain.gain.value = 0.45;
-    tremolo.connect(tremoloDepth);
-    tremoloDepth.connect(tremoloGain.gain);
-
-    body.connect(bandpass);
-    bandpass.connect(highshelf);
-    highshelf.connect(bodyGain);
-    bodyGain.connect(tremoloGain);
-    tremoloGain.connect(master);
-    body.start(now);
-    body.stop(now + rollDur);
-    tremolo.start(now);
-    tremolo.stop(now + rollDur);
-
-    // 2) 임팩트 클릭("싹") - roll 끝 무렵 터지는 짧고 강한 스파이크
-    const clickDur = 0.01 + Math.random() * 0.004;
-    const click = makeNoiseBuffer(ctx, clickDur, (t) => Math.pow(1 - t, 6));
+    // 2) 임팩트 크랙 - 뺨을 때리는 순간의 날카롭고 강한 스파이크 ("빡!")
+    const clickDur = 0.006 + Math.random() * 0.003;
+    const click = makeNoiseBuffer(ctx, clickDur, (t) => Math.pow(1 - t, 8));
     const clickFilter = ctx.createBiquadFilter();
     clickFilter.type = 'highpass';
-    clickFilter.frequency.value = 2500;
+    clickFilter.frequency.value = 3200;
     const clickGain = ctx.createGain();
-    clickGain.gain.setValueAtTime(1.6, impactAt);
+    clickGain.gain.setValueAtTime(1.8, impactAt);
     clickGain.gain.exponentialRampToValueAtTime(0.01, impactAt + clickDur);
     click.connect(clickFilter);
     clickFilter.connect(clickGain);
@@ -297,15 +275,15 @@
     click.start(impactAt);
     click.stop(impactAt + clickDur);
 
-    // 3) 임팩트에 맞춘 중고역 노이즈 - "싹" 소리의 몸통
-    const snapDur = 0.06 + Math.random() * 0.02;
-    const snap = makeNoiseBuffer(ctx, snapDur, (t) => Math.pow(1 - t, 2.2));
+    // 3) 임팩트 직후 짧은 잔향 - 뺨이 얼얼하게 울리는 고역 스냅 ("악!" 느낌의 잔여음)
+    const snapDur = 0.045 + Math.random() * 0.015;
+    const snap = makeNoiseBuffer(ctx, snapDur, (t) => Math.pow(1 - t, 3.2));
     const snapBandpass = ctx.createBiquadFilter();
     snapBandpass.type = 'bandpass';
-    snapBandpass.frequency.value = 2000 + Math.random() * 900;
-    snapBandpass.Q.value = 1.3;
+    snapBandpass.frequency.value = 2600 + Math.random() * 1000;
+    snapBandpass.Q.value = 1.6;
     const snapGain = ctx.createGain();
-    snapGain.gain.setValueAtTime(1.1, impactAt);
+    snapGain.gain.setValueAtTime(1.0, impactAt);
     snapGain.gain.exponentialRampToValueAtTime(0.01, impactAt + snapDur);
     snap.connect(snapBandpass);
     snapBandpass.connect(snapGain);
@@ -313,14 +291,14 @@
     snap.start(impactAt);
     snap.stop(impactAt + snapDur);
 
-    // 4) 저역 바디감 - 임팩트 순간 울리는 "퍽" 하는 낮은 톤
-    const thumpDur = 0.08 + Math.random() * 0.02;
+    // 4) 저역 바디감 - 임팩트 순간 얼굴 전체가 울리는 짧고 낮은 톤
+    const thumpDur = 0.05 + Math.random() * 0.015;
     const thump = ctx.createOscillator();
     thump.type = 'sine';
-    thump.frequency.setValueAtTime(180 + Math.random() * 40, impactAt);
-    thump.frequency.exponentialRampToValueAtTime(70, impactAt + thumpDur);
+    thump.frequency.setValueAtTime(220 + Math.random() * 40, impactAt);
+    thump.frequency.exponentialRampToValueAtTime(90, impactAt + thumpDur);
     const thumpGain = ctx.createGain();
-    thumpGain.gain.setValueAtTime(0.6, impactAt);
+    thumpGain.gain.setValueAtTime(0.5, impactAt);
     thumpGain.gain.exponentialRampToValueAtTime(0.01, impactAt + thumpDur);
     thump.connect(thumpGain);
     thumpGain.connect(master);
@@ -398,34 +376,64 @@
       <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
         <defs>
           <linearGradient id="bh-fill-${i}" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#ffd7d7"/>
-            <stop offset="55%" stop-color="#f78fa7"/>
-            <stop offset="100%" stop-color="#c85a7c"/>
+            <stop offset="0%" stop-color="#5c6e3a"/>
+            <stop offset="30%" stop-color="#7c9450"/>
+            <stop offset="65%" stop-color="#9bb35f"/>
+            <stop offset="100%" stop-color="#b9c97c"/>
           </linearGradient>
           <linearGradient id="bh-crack-${i}" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="42%" stop-color="rgba(139,46,79,0)"/>
-            <stop offset="50%" stop-color="rgba(120,36,66,0.55)"/>
-            <stop offset="58%" stop-color="rgba(139,46,79,0)"/>
+            <stop offset="42%" stop-color="rgba(40,30,20,0)"/>
+            <stop offset="50%" stop-color="rgba(40,30,20,0.55)"/>
+            <stop offset="58%" stop-color="rgba(40,30,20,0)"/>
           </linearGradient>
-          <radialGradient id="bh-hl-l-${i}" cx="30%" cy="28%" r="30%">
-            <stop offset="0%" stop-color="rgba(255,255,255,0.65)"/>
+          <radialGradient id="bh-hl-l-${i}" cx="25%" cy="30%" r="34%">
+            <stop offset="0%" stop-color="rgba(255,255,255,0.35)"/>
             <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
           </radialGradient>
-          <radialGradient id="bh-hl-r-${i}" cx="70%" cy="28%" r="30%">
-            <stop offset="0%" stop-color="rgba(255,255,255,0.5)"/>
+          <radialGradient id="bh-hl-r-${i}" cx="75%" cy="30%" r="34%">
+            <stop offset="0%" stop-color="rgba(255,255,255,0.28)"/>
             <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+          </radialGradient>
+          <radialGradient id="bh-blush-${i}" cx="78%" cy="55%" r="35%">
+            <stop offset="0%" stop-color="rgba(110,40,110,0.35)"/>
+            <stop offset="100%" stop-color="rgba(110,40,110,0)"/>
           </radialGradient>
           <clipPath id="bh-clip-${i}">
-            <path d="M 50 95 C 30 78, 6 55, 6 30 C 6 13, 19 3, 33 3 C 43 3, 50 10, 50 22 C 50 10, 57 3, 67 3 C 81 3, 94 13, 94 30 C 94 55, 70 78, 50 95 Z"/>
+            <path d="M 50 97 C 22 97, 2 72, 2 46 C 2 24, 16 4, 34 4 C 43 4, 48 10, 50 16 C 52 10, 57 4, 66 4 C 84 4, 98 24, 98 46 C 98 72, 78 97, 50 97 Z"/>
           </clipPath>
         </defs>
-        <path d="M 50 95 C 30 78, 6 55, 6 30 C 6 13, 19 3, 33 3 C 43 3, 50 10, 50 22 C 50 10, 57 3, 67 3 C 81 3, 94 13, 94 30 C 94 55, 70 78, 50 95 Z"
-          fill="url(#bh-fill-${i})" stroke="#8b2e4f" stroke-width="1.5" stroke-linejoin="round"/>
+        <path d="M 50 97 C 22 97, 2 72, 2 46 C 2 24, 16 4, 34 4 C 43 4, 48 10, 50 16 C 52 10, 57 4, 66 4 C 84 4, 98 24, 98 46 C 98 72, 78 97, 50 97 Z"
+          fill="url(#bh-fill-${i})" stroke="#33421f" stroke-width="1.5" stroke-linejoin="round"/>
         <g clip-path="url(#bh-clip-${i})">
           <rect x="0" y="0" width="100" height="100" fill="url(#bh-hl-l-${i})"/>
           <rect x="0" y="0" width="100" height="100" fill="url(#bh-hl-r-${i})"/>
-          <path d="M 50 20 C 47 40, 47 65, 50 95" fill="none" stroke="url(#bh-crack-${i})" stroke-width="6"/>
-          <ellipse cx="50" cy="88" rx="26" ry="12" fill="rgba(139,46,79,0.28)"/>
+          <rect x="0" y="0" width="100" height="100" fill="url(#bh-blush-${i})"/>
+          <path d="M 50 18 C 47 40, 47 68, 50 97" fill="none" stroke="url(#bh-crack-${i})" stroke-width="5"/>
+          <ellipse cx="50" cy="90" rx="26" ry="10" fill="rgba(40,30,20,0.25)"/>
+
+          <!-- 좀비 눈 (양쪽 볼 위쪽에 하나씩, 얼굴처럼 보이도록) -->
+          <ellipse cx="27" cy="28" rx="7" ry="8" fill="#f4f0d8"/>
+          <ellipse cx="73" cy="28" rx="7" ry="8" fill="#f4f0d8"/>
+          <circle cx="27" cy="30" r="3.4" fill="#8a1f1f"/>
+          <circle cx="73" cy="30" r="3.4" fill="#8a1f1f"/>
+          <circle cx="27" cy="30" r="1.4" fill="#1a0a0a"/>
+          <circle cx="73" cy="30" r="1.4" fill="#1a0a0a"/>
+
+          <!-- 눈가 다크서클 / 썩은 자국 -->
+          <ellipse cx="27" cy="28" rx="10" ry="11" fill="none" stroke="rgba(40,60,20,0.5)" stroke-width="1.5"/>
+          <ellipse cx="73" cy="28" rx="10" ry="11" fill="none" stroke="rgba(40,60,20,0.5)" stroke-width="1.5"/>
+
+          <!-- 꿰맨 상처 자국 -->
+          <path d="M 16 48 L 24 52" stroke="#3a2a18" stroke-width="1.4" stroke-linecap="round"/>
+          <path d="M 19 45 L 21 55" stroke="#3a2a18" stroke-width="1.4" stroke-linecap="round"/>
+          <path d="M 76 50 L 84 46" stroke="#3a2a18" stroke-width="1.4" stroke-linecap="round"/>
+          <path d="M 79 55 L 81 43" stroke="#3a2a18" stroke-width="1.4" stroke-linecap="round"/>
+
+          <!-- 이빨 드러난 입 (아래쪽 갈라짐 부근) -->
+          <path d="M 34 78 Q 50 88, 66 78 Q 50 84, 34 78 Z" fill="#3a1414"/>
+          <path d="M 38 79 L 40 74 L 42 79 Z" fill="#eee6cf"/>
+          <path d="M 47 81 L 49 75 L 51 81 Z" fill="#eee6cf"/>
+          <path d="M 56 80 L 58 75 L 60 80 Z" fill="#eee6cf"/>
         </g>
       </svg>`;
     mole.appendChild(buttHeart);
@@ -525,6 +533,7 @@
   }
 
   function startGame() {
+    getAudioCtx(); // 사용자 클릭 시점에 오디오 컨텍스트를 미리 깨워둔다 (브라우저 자동재생 정책 대응)
     level = 1;
     score = 0;
     timeLeft = 10;
